@@ -18,7 +18,14 @@
 
 package org.apache.cassandra.distributed.test.metrics;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -31,6 +38,7 @@ import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.StreamingMetrics;
+import org.apache.cassandra.streaming.management.StreamEventJMXNotifier;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -143,6 +151,113 @@ public class StreamingMetricsTest extends TestBaseImpl
     public void testMetricsWithRepairAndStreamingToTwoNodes() throws Exception
     {
         testMetricsWithStreamingToTwoNodes(true);
+    }
+
+    @Test
+    public void testMetricsUpdateIncrementallyWithRepairAndStreamingBetweenNodes() throws Exception
+    {
+        try(Cluster cluster = init(Cluster.build(3)
+                                          .withDataDirCount(1)
+                                          .withConfig(config -> config.with(NETWORK, GOSSIP)
+                                                                      .set("stream_entire_sstables", false)
+                                                                      .set("hinted_handoff_enabled", false))
+                                          .start(), 2))
+        {
+            Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
+            cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
+
+            final int rowsPerFile = 10000;
+            cluster.forEach((node) -> node.nodetool("disableautocompaction", KEYSPACE));
+            IMessageFilters.Filter drop1to3 = cluster.filters().verbs(MUTATION_REQ.id).from(1).to(3).drop();
+
+            for (int k = 0; k < 3; k++)
+            {
+                for (int i = k * rowsPerFile; i < k * rowsPerFile + rowsPerFile; ++i)
+                {
+                    cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.cf (k, c1, c2) VALUES (?, 'value1', 'value2');"),
+                                                   ConsistencyLevel.ONE,
+                                                   Integer.toString(i));
+                }
+                cluster.get(1).flush(KEYSPACE);
+                cluster.get(2).flush(KEYSPACE);
+            }
+
+            drop1to3.off();
+
+            ExecutorService nodetoolExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+            checkThatNoStreamingOccuredBetweenTheThreeNodes(cluster);
+            Future<Integer> firstRepairExecution = nodetoolExecutor.submit(
+                () -> cluster.get(3).nodetool("repair", "--full")
+            );
+            Thread.sleep(500); // Wait for some streaming to happen.
+            checkMetricsUpdatedIncrementally(cluster, firstRepairExecution, 3, 1);
+            firstRepairExecution.get();
+        }
+    }
+
+    @Test
+    public void testMetricsUpdateIncrementallyWithRebuildAndStreamingBetweenNodes() throws Exception
+    {
+        try(Cluster cluster = init(Cluster.build(3)
+                                          .withDataDirCount(1)
+                                          .withConfig(config -> config.with(NETWORK, GOSSIP)
+                                                                      .set("stream_entire_sstables", false)
+                                                                      .set("hinted_handoff_enabled", false))
+                                          .start(), 2))
+        {
+            Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
+            cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
+
+            final int rowsPerFile = 10000;
+            cluster.forEach((node) -> node.nodetool("disableautocompaction", KEYSPACE));
+            IMessageFilters.Filter drop1to3 = cluster.filters().verbs(MUTATION_REQ.id).from(1).to(3).drop();
+
+            for (int k = 0; k < 3; k++)
+            {
+                for (int i = k * rowsPerFile; i < k * rowsPerFile + rowsPerFile; ++i)
+                {
+                    cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.cf (k, c1, c2) VALUES (?, 'value1', 'value2');"),
+                                                   ConsistencyLevel.ONE,
+                                                   Integer.toString(i));
+                }
+                cluster.get(1).flush(KEYSPACE);
+                cluster.get(2).flush(KEYSPACE);
+            }
+
+            drop1to3.off();
+
+            ExecutorService nodetoolExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+            checkThatNoStreamingOccuredBetweenTheThreeNodes(cluster);
+            Future<Integer> firstRepairExecution = nodetoolExecutor.submit(
+                () -> cluster.get(3).nodetool("rebuild")
+            );
+            Thread.sleep(500); // Wait for some streaming to happen.
+            checkMetricsUpdatedIncrementally(cluster, firstRepairExecution, 3, 1);
+            firstRepairExecution.get();
+        }
+    }
+
+    private void checkMetricsUpdatedIncrementally(Cluster cluster, Future<Integer> streamingOperationExecution, int node, int peer)
+    {
+        assertThat(streamingOperationExecution.isDone())
+        .describedAs("The streaming operation should not have completed.")
+        .isFalse();
+
+        InetAddressAndPort peerAddress = getNodeAddress(cluster, peer);
+        InetAddressAndPort nodeAddress = getNodeAddress(cluster, node);
+        cluster.get(node).runOnInstance(() -> {
+            StreamingMetrics metrics = StreamingMetrics.get(peerAddress);
+            assertThat(metrics.incomingBytes.getCount())
+            .describedAs("Incoming streaming metrics for node" + node + " should have been updated while stream session is running.")
+            .isGreaterThan(0);
+        });
+
+        cluster.get(peer).runOnInstance(() -> {
+            StreamingMetrics metrics = StreamingMetrics.get(nodeAddress);
+            assertThat(metrics.outgoingBytes.getCount())
+            .describedAs("Outgoing streaming metrics for node" + node + " should have been updated while stream session is running.")
+            .isGreaterThan(0);
+        });
     }
 
     private int getNumberOfSSTables(Cluster cluster, int node) {
@@ -355,7 +470,6 @@ public class StreamingMetricsTest extends TestBaseImpl
         cluster.get(node).runOnInstance(() -> {
 
             StreamingMetrics metrics = StreamingMetrics.get(address);
-
             long actual = metrics.incomingBytes.getCount();
             assertThat(actual)
                 .describedAs("The amount of data received by node" + node + " from node" + peer + " is not the expected one. [expected: " + receivedBytes + ", actual: " + actual + "]")
