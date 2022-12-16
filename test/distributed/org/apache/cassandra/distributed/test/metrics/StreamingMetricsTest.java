@@ -20,6 +20,7 @@ package org.apache.cassandra.distributed.test.metrics;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -163,35 +164,7 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                       .set("hinted_handoff_enabled", false))
                                           .start(), 2))
         {
-            Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
-            cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
-
-            final int rowsPerFile = 10000;
-            cluster.forEach((node) -> node.nodetool("disableautocompaction", KEYSPACE));
-            IMessageFilters.Filter drop1to3 = cluster.filters().verbs(MUTATION_REQ.id).from(1).to(3).drop();
-
-            for (int k = 0; k < 3; k++)
-            {
-                for (int i = k * rowsPerFile; i < k * rowsPerFile + rowsPerFile; ++i)
-                {
-                    cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.cf (k, c1, c2) VALUES (?, 'value1', 'value2');"),
-                                                   ConsistencyLevel.ONE,
-                                                   Integer.toString(i));
-                }
-                cluster.get(1).flush(KEYSPACE);
-                cluster.get(2).flush(KEYSPACE);
-            }
-
-            drop1to3.off();
-
-            ExecutorService nodetoolExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-            checkThatNoStreamingOccuredBetweenTheThreeNodes(cluster);
-            Future<Integer> firstRepairExecution = nodetoolExecutor.submit(
-                () -> cluster.get(3).nodetool("repair", "--full")
-            );
-            Thread.sleep(500); // Wait for some streaming to happen.
-            checkMetricsUpdatedIncrementally(cluster, firstRepairExecution, 3, 1);
-            firstRepairExecution.get();
+            runStreamingOperationAndCheckMetrics(cluster, () -> cluster.get(3).nodetool("repair", "--full"));
         }
     }
 
@@ -205,36 +178,40 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                       .set("hinted_handoff_enabled", false))
                                           .start(), 2))
         {
-            Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
-            cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
-
-            final int rowsPerFile = 10000;
-            cluster.forEach((node) -> node.nodetool("disableautocompaction", KEYSPACE));
-            IMessageFilters.Filter drop1to3 = cluster.filters().verbs(MUTATION_REQ.id).from(1).to(3).drop();
-
-            for (int k = 0; k < 3; k++)
-            {
-                for (int i = k * rowsPerFile; i < k * rowsPerFile + rowsPerFile; ++i)
-                {
-                    cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.cf (k, c1, c2) VALUES (?, 'value1', 'value2');"),
-                                                   ConsistencyLevel.ONE,
-                                                   Integer.toString(i));
-                }
-                cluster.get(1).flush(KEYSPACE);
-                cluster.get(2).flush(KEYSPACE);
-            }
-
-            drop1to3.off();
-
-            ExecutorService nodetoolExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-            checkThatNoStreamingOccuredBetweenTheThreeNodes(cluster);
-            Future<Integer> firstRepairExecution = nodetoolExecutor.submit(
-                () -> cluster.get(3).nodetool("rebuild")
-            );
-            Thread.sleep(500); // Wait for some streaming to happen.
-            checkMetricsUpdatedIncrementally(cluster, firstRepairExecution, 3, 1);
-            firstRepairExecution.get();
+            runStreamingOperationAndCheckMetrics(cluster, () -> cluster.get(3).nodetool("rebuild"));
         }
+    }
+    public void runStreamingOperationAndCheckMetrics(Cluster cluster, Callable<Integer> streamingOperation) throws Exception
+    {
+
+        Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
+        cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
+
+        final int rowsPerFile = 10000;
+        cluster.forEach((node) -> node.nodetool("disableautocompaction", KEYSPACE));
+        IMessageFilters.Filter drop1to3 = cluster.filters().verbs(MUTATION_REQ.id).from(1).to(3).drop();
+
+        for (int k = 0; k < 3; k++)
+        {
+            for (int i = k * rowsPerFile; i < k * rowsPerFile + rowsPerFile; ++i)
+            {
+                cluster.coordinator(1).execute(withKeyspace("INSERT INTO %s.cf (k, c1, c2) VALUES (?, 'value1', 'value2');"),
+                                               ConsistencyLevel.ONE,
+                                               Integer.toString(i));
+            }
+            cluster.get(1).flush(KEYSPACE);
+            cluster.get(2).flush(KEYSPACE);
+        }
+
+        drop1to3.off();
+
+        ExecutorService nodetoolExecutor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+        checkThatNoStreamingOccuredBetweenTheThreeNodes(cluster);
+        Future<Integer> streamingOperationExecution = nodetoolExecutor.submit(streamingOperation);
+        Thread.sleep(500); // Wait for some streaming to happen.
+        checkMetricsUpdatedIncrementally(cluster, streamingOperationExecution, 3, 1);
+        streamingOperationExecution.get();
+
     }
 
     private void checkMetricsUpdatedIncrementally(Cluster cluster, Future<Integer> streamingOperationExecution, int node, int peer)
