@@ -200,8 +200,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private final TimeUUID pendingRepair;
     private final PreviewKind previewKind;
+    private final Map<ProgressInfo, Long> lastSeenBytesStreamed = new ConcurrentHashMap<>();
 
-/**
+    /**
  * State Transition:
  *
  * <pre>
@@ -966,9 +967,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void streamSent(OutgoingStreamMessage message)
     {
         long headerSize = message.stream.getEstimatedSize();
-        StreamingMetrics.totalOutgoingBytes.inc(headerSize);
-        metrics.outgoingBytes.inc(headerSize);
-
         if(StreamOperation.REPAIR == getStreamOperation())
         {
             StreamingMetrics.totalOutgoingRepairBytes.inc(headerSize);
@@ -995,9 +993,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             throw new RuntimeException(String.format("[Stream #%s] Cannot receive files for preview session", planId()));
         }
 
-        long headerSize = message.stream.getSize();
-        StreamingMetrics.totalIncomingBytes.inc(headerSize);
-        metrics.incomingBytes.inc(headerSize);
         // send back file received message
         channel.sendControlMessage(new ReceivedMessage(message.header.tableId, message.header.sequenceNumber)).syncUninterruptibly();
         StreamHook.instance.reportIncomingStream(message.header.tableId, message.stream, this, message.header.sequenceNumber);
@@ -1027,7 +1022,31 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
+        updateMetricsOnProgress(progress);
         streamResult.handleProgress(progress);
+    }
+
+    private void updateMetricsOnProgress(ProgressInfo progress)
+    {
+        ProgressInfo.Direction direction = progress.direction;
+        long lastSeenBytesStreamedForProgress = lastSeenBytesStreamed.getOrDefault(progress, 0L);
+        logger.debug("Last seen bytes streamed for progress {}", lastSeenBytesStreamedForProgress);
+        long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
+        logger.debug("Incrementing stream metrics in direction {} by {} bytes.", direction.name(), newBytesStreamed );
+
+        if (direction == ProgressInfo.Direction.OUT)
+        {
+            StreamingMetrics.totalOutgoingBytes.inc(newBytesStreamed);
+            metrics.outgoingBytes.inc(newBytesStreamed);
+        }
+
+        else if (direction == ProgressInfo.Direction.IN)
+        {
+            StreamingMetrics.totalIncomingBytes.inc(newBytesStreamed);
+            metrics.incomingBytes.inc(newBytesStreamed);
+        }
+
+        lastSeenBytesStreamed.put(progress, lastSeenBytesStreamedForProgress + newBytesStreamed);
     }
 
     public void received(TableId tableId, int sequenceNumber)
