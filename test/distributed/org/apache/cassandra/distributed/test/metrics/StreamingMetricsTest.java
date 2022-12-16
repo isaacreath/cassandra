@@ -18,10 +18,8 @@
 
 package org.apache.cassandra.distributed.test.metrics;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -39,9 +37,9 @@ import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.StreamingMetrics;
-import org.apache.cassandra.streaming.management.StreamEventJMXNotifier;
 
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
+import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.net.Verb.MUTATION_REQ;
@@ -164,7 +162,7 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                       .set("hinted_handoff_enabled", false))
                                           .start(), 2))
         {
-            runStreamingOperationAndCheckMetrics(cluster, () -> cluster.get(3).nodetool("repair", "--full"));
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(3).nodetool("repair", "--full"));
         }
     }
 
@@ -178,13 +176,16 @@ public class StreamingMetricsTest extends TestBaseImpl
                                                                       .set("hinted_handoff_enabled", false))
                                           .start(), 2))
         {
-            runStreamingOperationAndCheckMetrics(cluster, () -> cluster.get(3).nodetool("rebuild"));
+            runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(3).nodetool("rebuild"));
         }
     }
-    public void runStreamingOperationAndCheckMetrics(Cluster cluster, Callable<Integer> streamingOperation) throws Exception
+    public void runStreamingOperationAndCheckIncrementalMetrics(Cluster cluster, Callable<Integer> streamingOperation) throws Exception
     {
+        assertThat(cluster.size())
+            .describedAs("The minimum cluster size to check streaming metrics is 3 nodes.")
+            .isEqualTo(3);
 
-        Stream.of(1,2,3).map(cluster::get).forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
+        cluster.forEach(i -> i.runOnInstance(() -> SystemKeyspace.forceBlockingFlush(SystemKeyspace.LOCAL)));
         cluster.schemaChange(String.format("CREATE TABLE %s.cf (k text, c1 text, c2 text, PRIMARY KEY (k)) WITH compaction = {'class': '%s', 'enabled': 'false'}", KEYSPACE, "LeveledCompactionStrategy"));
 
         final int rowsPerFile = 10000;
