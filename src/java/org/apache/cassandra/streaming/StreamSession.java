@@ -1036,13 +1036,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             StreamingMetrics.totalOutgoingBytes.inc(newBytesStreamed);
             metrics.outgoingBytes.inc(newBytesStreamed);
         }
-
         else if (direction == ProgressInfo.Direction.IN)
         {
             StreamingMetrics.totalIncomingBytes.inc(newBytesStreamed);
             metrics.incomingBytes.inc(newBytesStreamed);
         }
-
         lastSeenBytesStreamed.put(progress, lastSeenBytesStreamedForProgress + newBytesStreamed);
     }
 
