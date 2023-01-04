@@ -36,13 +36,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import com.codahale.metrics.Counter;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future; //checkstyle: permit this import
 
@@ -200,7 +203,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private final TimeUUID pendingRepair;
     private final PreviewKind previewKind;
-    private final Map<ProgressInfo, Long> lastSeenBytesStreamed = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastSeenIncomingBytesStreamed;
+    private final Map<String, Long> lastSeenOutgoingBytesStreamed;
 
 /**
  * State Transition:
@@ -265,6 +269,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         this.metrics = StreamingMetrics.get(peer);
         this.pendingRepair = pendingRepair;
         this.previewKind = previewKind;
+        this.lastSeenOutgoingBytesStreamed = new ConcurrentHashMap<>();
+        this.lastSeenIncomingBytesStreamed = new ConcurrentHashMap<>();
     }
 
     public boolean isFollower()
@@ -1019,7 +1025,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
-    public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
+    public void progress(String filename, @Nonnull ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
         updateMetricsOnProgress(progress);
@@ -1029,19 +1035,22 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     private void updateMetricsOnProgress(ProgressInfo progress)
     {
         ProgressInfo.Direction direction = progress.direction;
-        long lastSeenBytesStreamedForProgress = lastSeenBytesStreamed.getOrDefault(progress, 0L);
-        long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
         if (direction == ProgressInfo.Direction.OUT)
         {
+            long lastSeenBytesStreamedForProgress = lastSeenOutgoingBytesStreamed.getOrDefault(progress.fileName, 0L);
+            long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
             StreamingMetrics.totalOutgoingBytes.inc(newBytesStreamed);
             metrics.outgoingBytes.inc(newBytesStreamed);
+            lastSeenOutgoingBytesStreamed.put(progress.fileName, progress.currentBytes);
         }
-        else if (direction == ProgressInfo.Direction.IN)
+        else
         {
+            long lastSeenBytesStreamedForProgress = lastSeenIncomingBytesStreamed.getOrDefault(progress.fileName, 0L);
+            long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
             StreamingMetrics.totalIncomingBytes.inc(newBytesStreamed);
             metrics.incomingBytes.inc(newBytesStreamed);
+            lastSeenIncomingBytesStreamed.put(progress.fileName, progress.currentBytes);
         }
-        lastSeenBytesStreamed.put(progress, lastSeenBytesStreamedForProgress + newBytesStreamed);
     }
 
     public void received(TableId tableId, int sequenceNumber)
