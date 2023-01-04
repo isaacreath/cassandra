@@ -158,12 +158,12 @@ public class StreamingMetricsTest extends TestBaseImpl
     @Test
     public void testMetricsUpdateIncrementallyWithRepairAndStreamingBetweenNodes() throws Exception
     {
-        try(Cluster cluster = init(Cluster.build(2)
-                                          .withDataDirCount(1)
-                                          .withConfig(config -> config.with(NETWORK, GOSSIP)
-                                                                      .set("stream_entire_sstables", false)
-                                                                      .set("hinted_handoff_enabled", false))
-                                          .start(), 2))
+        try (Cluster cluster = init(Cluster.build(2)
+                                           .withDataDirCount(1)
+                                           .withConfig(config -> config.with(NETWORK, GOSSIP)
+                                                                       .set("stream_entire_sstables", false)
+                                                                       .set("hinted_handoff_enabled", false))
+                                           .start(), 2))
         {
             runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("repair", "--full"));
         }
@@ -172,12 +172,12 @@ public class StreamingMetricsTest extends TestBaseImpl
     @Test
     public void testMetricsUpdateIncrementallyWithRebuildAndStreamingBetweenNodes() throws Exception
     {
-        try(Cluster cluster = init(Cluster.build(2)
-                                          .withDataDirCount(1)
-                                          .withConfig(config -> config.with(NETWORK, GOSSIP)
-                                                                      .set("stream_entire_sstables", false)
-                                                                      .set("hinted_handoff_enabled", false))
-                                          .start(), 2))
+        try (Cluster cluster = init(Cluster.build(2)
+                                           .withDataDirCount(1)
+                                           .withConfig(config -> config.with(NETWORK, GOSSIP)
+                                                                       .set("stream_entire_sstables", false)
+                                                                       .set("hinted_handoff_enabled", false))
+                                           .start(), 2))
         {
             runStreamingOperationAndCheckIncrementalMetrics(cluster, () -> cluster.get(2).nodetool("rebuild"));
         }
@@ -243,6 +243,7 @@ public class StreamingMetricsTest extends TestBaseImpl
         long node1SSTableSize = getSingleSSTableSize(cluster, 1);
         checkMetricsUpdatedIncrementally(cluster, streamingOperationExecution, 2, 1, node1SSTableSize);
         streamingOperationExecution.get();
+        nodetoolExecutor.shutdown();
     }
 
     private void checkMetricsUpdatedIncrementally(Cluster cluster, Future<Integer> streamingOperationExecution, int dst, int src, long expectedTransferSize)
