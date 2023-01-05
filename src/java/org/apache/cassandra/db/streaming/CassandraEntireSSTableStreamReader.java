@@ -57,8 +57,9 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
     private final StreamMessageHeader messageHeader;
     private final CassandraStreamHeader header;
     private final int fileSequenceNumber;
+    private final FileStreamMetricsListener fileStreamMetricsListener;
 
-    public CassandraEntireSSTableStreamReader(StreamMessageHeader messageHeader, CassandraStreamHeader streamHeader, StreamSession session)
+    public CassandraEntireSSTableStreamReader(StreamMessageHeader messageHeader, CassandraStreamHeader streamHeader, StreamSession session, FileStreamMetricsListener fileStreamMetricsListener)
     {
         if (streamHeader.format != SSTableFormat.Type.BIG)
             throw new AssertionError("Unsupported SSTable format " + streamHeader.format);
@@ -75,6 +76,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
         this.messageHeader = messageHeader;
         this.tableId = messageHeader.tableId;
         this.fileSequenceNumber = messageHeader.sequenceNumber;
+        this.fileStreamMetricsListener = fileStreamMetricsListener;
     }
 
     /**
@@ -95,7 +97,6 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
 
         ComponentManifest manifest = header.componentManifest;
         long totalSize = manifest.totalSize();
-
         logger.debug("[Stream #{}] Started receiving sstable #{} from {}, size = {}, table = {}",
                      session.planId(),
                      fileSequenceNumber,
@@ -123,6 +124,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
 
                 writer.writeComponent(component.type, in, length);
                 session.progress(writer.descriptor.filenameFor(component), ProgressInfo.Direction.IN, length, length);
+                fileStreamMetricsListener.onStreamingBytesTransferred(length);
                 bytesRead += length;
 
                 logger.debug("[Stream #{}] Finished receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",

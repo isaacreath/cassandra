@@ -119,7 +119,7 @@ public class CassandraEntireSSTableStreamWriterTest
         try (AsyncStreamingOutputPlus out = new AsyncStreamingOutputPlus(channel);
              ComponentContext context = ComponentContext.create(descriptor))
         {
-            CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context);
+            CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context, FileStreamMetricsListener.NO_OP);
 
             writer.write(out);
 
@@ -142,7 +142,7 @@ public class CassandraEntireSSTableStreamWriterTest
         try (AsyncStreamingOutputPlus out = new AsyncStreamingOutputPlus(channel);
              ComponentContext context = ComponentContext.create(descriptor))
         {
-            CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context);
+            CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context, FileStreamMetricsListener.NO_OP);
             writer.write(out);
 
             session.prepareReceiving(new StreamSummary(sstable.metadata().id, 1, 5104));
@@ -161,7 +161,7 @@ public class CassandraEntireSSTableStreamWriterTest
                                  .withTableId(sstable.metadata().id)
                                  .build();
 
-            CassandraEntireSSTableStreamReader reader = new CassandraEntireSSTableStreamReader(new StreamMessageHeader(sstable.metadata().id, peer, session.planId(), false, 0, 0, 0, null), header, session);
+            CassandraEntireSSTableStreamReader reader = new CassandraEntireSSTableStreamReader(new StreamMessageHeader(sstable.metadata().id, peer, session.planId(), false, 0, 0, 0, null), header, session, FileStreamMetricsListener.NO_OP);
 
             SSTableMultiWriter sstableWriter = reader.read(new DataInputBuffer(serializedFile.nioBuffer(), false));
             Collection<SSTableReader> newSstables = sstableWriter.finished();

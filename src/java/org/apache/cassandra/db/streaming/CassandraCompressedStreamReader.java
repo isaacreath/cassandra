@@ -42,9 +42,9 @@ public class CassandraCompressedStreamReader extends CassandraStreamReader
 
     protected final CompressionInfo compressionInfo;
 
-    public CassandraCompressedStreamReader(StreamMessageHeader header, CassandraStreamHeader streamHeader, StreamSession session)
+    public CassandraCompressedStreamReader(StreamMessageHeader header, CassandraStreamHeader streamHeader, StreamSession session, FileStreamMetricsListener fileStreamMetricsListener)
     {
-        super(header, streamHeader, session);
+        super(header, streamHeader, session, fileStreamMetricsListener);
         this.compressionInfo = streamHeader.compressionInfo;
     }
 
@@ -57,7 +57,6 @@ public class CassandraCompressedStreamReader extends CassandraStreamReader
     public SSTableMultiWriter read(DataInputPlus inputPlus) throws Throwable
     {
         long totalSize = totalSize();
-
         ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(tableId);
 
         if (cfs == null)
@@ -94,6 +93,7 @@ public class CassandraCompressedStreamReader extends CassandraStreamReader
                     writePartition(deserializer, writer);
                     // when compressed, report total bytes of compressed chunks read since remoteFile.size is the sum of chunks transferred
                     session.progress(filename + '-' + fileSeqNum, ProgressInfo.Direction.IN, cis.chunkBytesRead(), totalSize);
+                    fileStreamMetricsListener.onStreamingBytesTransferred(cis.chunkBytesRead());
                 }
                 assert in.getBytesRead() == sectionLength;
             }

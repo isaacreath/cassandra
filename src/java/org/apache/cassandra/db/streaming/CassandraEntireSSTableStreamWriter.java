@@ -46,14 +46,16 @@ public class CassandraEntireSSTableStreamWriter
     private final ComponentManifest manifest;
     private final StreamSession session;
     private final StreamRateLimiter limiter;
+    private final FileStreamMetricsListener fileStreamMetricsListener;
 
-    public CassandraEntireSSTableStreamWriter(SSTableReader sstable, StreamSession session, ComponentContext context)
+    public CassandraEntireSSTableStreamWriter(SSTableReader sstable, StreamSession session, ComponentContext context, FileStreamMetricsListener fileStreamMetricsListener)
     {
         this.session = session;
         this.sstable = sstable;
         this.context = context;
         this.manifest = context.manifest();
         this.limiter = StreamManager.getEntireSSTableRateLimiter(session.peer);
+        this.fileStreamMetricsListener = fileStreamMetricsListener;
     }
 
     /**
@@ -94,7 +96,7 @@ public class CassandraEntireSSTableStreamWriter
             progress += bytesWritten;
 
             session.progress(sstable.descriptor.filenameFor(component), ProgressInfo.Direction.OUT, bytesWritten, length);
-
+            fileStreamMetricsListener.onStreamingBytesTransferred(bytesWritten);
             logger.debug("[Stream #{}] Finished streaming {}.{} gen {} component {} to {}, xfered = {}, length = {}, totalSize = {}",
                          session.planId(),
                          sstable.getKeyspaceName(),

@@ -234,7 +234,7 @@ public class EntireSSTableStreamConcurrentComponentMutationTest
         try (DataInputBuffer in = new DataInputBuffer(serializedFile.nioBuffer(), false))
         {
             CassandraStreamHeader header = CassandraStreamHeader.serializer.deserialize(in, MessagingService.current_version);
-            CassandraEntireSSTableStreamReader reader = new CassandraEntireSSTableStreamReader(messageHeader, header, session);
+            CassandraEntireSSTableStreamReader reader = new CassandraEntireSSTableStreamReader(messageHeader, header, session, FileStreamMetricsListener.NO_OP);
             SSTableReader streamedSSTable = Iterables.getOnlyElement(reader.read(in).finished());
 
             SSTableUtils.assertContentEquals(sstable, streamedSSTable);

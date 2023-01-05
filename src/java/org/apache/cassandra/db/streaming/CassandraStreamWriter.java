@@ -59,14 +59,16 @@ public class CassandraStreamWriter
     protected final StreamRateLimiter limiter;
     protected final StreamSession session;
     private final long totalSize;
+    protected final FileStreamMetricsListener fileStreamMetricsListener;
 
-    public CassandraStreamWriter(SSTableReader sstable, CassandraStreamHeader header, StreamSession session)
+    public CassandraStreamWriter(SSTableReader sstable, CassandraStreamHeader header, StreamSession session, FileStreamMetricsListener fileStreamMetricsListener)
     {
         this.session = session;
         this.sstable = sstable;
         this.sections = header.sections;
         this.limiter =  StreamManager.getRateLimiter(session.peer);
         this.totalSize = header.size();
+        this.fileStreamMetricsListener = fileStreamMetricsListener;
     }
 
     /**
@@ -114,6 +116,7 @@ public class CassandraStreamWriter
                     bytesRead += lastBytesRead;
                     progress += (lastBytesRead - transferOffset);
                     session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, totalSize);
+                    fileStreamMetricsListener.onStreamingBytesTransferred(progress);
                     transferOffset = 0;
                 }
 

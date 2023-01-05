@@ -1025,32 +1025,10 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         }
     }
 
-    public void progress(String filename, @Nonnull ProgressInfo.Direction direction, long bytes, long total)
+    public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
-        updateMetricsOnProgress(progress);
         streamResult.handleProgress(progress);
-    }
-
-    private void updateMetricsOnProgress(ProgressInfo progress)
-    {
-        ProgressInfo.Direction direction = progress.direction;
-        if (direction == ProgressInfo.Direction.OUT)
-        {
-            long lastSeenBytesStreamedForProgress = lastSeenOutgoingBytesStreamed.getOrDefault(progress.fileName, 0L);
-            long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
-            StreamingMetrics.totalOutgoingBytes.inc(newBytesStreamed);
-            metrics.outgoingBytes.inc(newBytesStreamed);
-            lastSeenOutgoingBytesStreamed.put(progress.fileName, progress.currentBytes);
-        }
-        else
-        {
-            long lastSeenBytesStreamedForProgress = lastSeenIncomingBytesStreamed.getOrDefault(progress.fileName, 0L);
-            long newBytesStreamed = progress.currentBytes - lastSeenBytesStreamedForProgress;
-            StreamingMetrics.totalIncomingBytes.inc(newBytesStreamed);
-            metrics.incomingBytes.inc(newBytesStreamed);
-            lastSeenIncomingBytesStreamed.put(progress.fileName, progress.currentBytes);
-        }
     }
 
     public void received(TableId tableId, int sequenceNumber)

@@ -77,8 +77,9 @@ public class CassandraStreamReader implements IStreamReader
     protected final int sstableLevel;
     protected final SerializationHeader.Component header;
     protected final int fileSeqNum;
+    protected final FileStreamMetricsListener fileStreamMetricsListener;
 
-    public CassandraStreamReader(StreamMessageHeader header, CassandraStreamHeader streamHeader, StreamSession session)
+    public CassandraStreamReader(StreamMessageHeader header, CassandraStreamHeader streamHeader, StreamSession session, FileStreamMetricsListener fileStreamMetricsListener)
     {
         if (session.getPendingRepair() != null)
         {
@@ -97,6 +98,7 @@ public class CassandraStreamReader implements IStreamReader
         this.sstableLevel = streamHeader.sstableLevel;
         this.header = streamHeader.serializationHeader;
         this.fileSeqNum = header.sequenceNumber;
+        this.fileStreamMetricsListener = fileStreamMetricsListener;
     }
 
     /**
@@ -109,7 +111,6 @@ public class CassandraStreamReader implements IStreamReader
     public SSTableMultiWriter read(DataInputPlus inputPlus) throws Throwable
     {
         long totalSize = totalSize();
-
         ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(tableId);
         if (cfs == null)
             // schema was dropped during streaming
@@ -131,6 +132,7 @@ public class CassandraStreamReader implements IStreamReader
                 writePartition(deserializer, writer);
                 // TODO move this to BytesReadTracker
                 session.progress(writer.getFilename() + '-' + fileSeqNum, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
+                fileStreamMetricsListener.onStreamingBytesTransferred(in.getBytesRead());
             }
             logger.debug("[Stream #{}] Finished receiving file #{} from {} readBytes = {}, totalSize = {}",
                          session.planId(), fileSeqNum, session.peer, FBUtilities.prettyPrintMemory(in.getBytesRead()), FBUtilities.prettyPrintMemory(totalSize));

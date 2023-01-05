@@ -45,6 +45,7 @@ import org.apache.cassandra.db.streaming.CassandraStreamHeader;
 import org.apache.cassandra.db.streaming.CassandraStreamReader;
 import org.apache.cassandra.db.streaming.CassandraStreamWriter;
 import org.apache.cassandra.db.streaming.ComponentContext;
+import org.apache.cassandra.db.streaming.FileStreamMetricsListener;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.SSTableMultiWriter;
@@ -122,7 +123,7 @@ public class ZeroCopyStreamingBenchmark
             sstable = store.getLiveSSTables().iterator().next();
             session = setupStreamingSessionForTest();
             context = ComponentContext.create(sstable.descriptor);
-            blockStreamWriter = new CassandraEntireSSTableStreamWriter(sstable, session, context);
+            blockStreamWriter = new CassandraEntireSSTableStreamWriter(sstable, session, context, FileStreamMetricsListener.NO_OP);
 
             CapturingNettyChannel blockStreamCaptureChannel = new CapturingNettyChannel(STREAM_SIZE);
             AsyncStreamingOutputPlus out = new AsyncStreamingOutputPlus(blockStreamCaptureChannel);
@@ -145,11 +146,10 @@ public class ZeroCopyStreamingBenchmark
                                      .withFirstKey(sstable.first)
                                      .withTableId(sstable.metadata().id)
                                      .build();
-
             blockStreamReader = new CassandraEntireSSTableStreamReader(new StreamMessageHeader(sstable.metadata().id,
                                                                                                peer, session.planId(), false,
                                                                                                0, 0, 0,
-                                                                                               null), entireSSTableStreamHeader, session);
+                                                                                               null), entireSSTableStreamHeader, session, FileStreamMetricsListener.NO_OP);
 
             List<Range<Token>> requestedRanges = Arrays.asList(new Range<>(sstable.first.minValue().getToken(), sstable.last.getToken()));
             CassandraStreamHeader partialSSTableStreamHeader =
@@ -163,17 +163,16 @@ public class ZeroCopyStreamingBenchmark
                                  .withTableId(sstable.metadata().id)
                                  .build();
 
-            partialStreamWriter = new CassandraStreamWriter(sstable, partialSSTableStreamHeader, session);
+            partialStreamWriter = new CassandraStreamWriter(sstable, partialSSTableStreamHeader, session, FileStreamMetricsListener.NO_OP);
 
             CapturingNettyChannel partialStreamChannel = new CapturingNettyChannel(STREAM_SIZE);
             partialStreamWriter.write(new AsyncStreamingOutputPlus(partialStreamChannel));
             serializedPartialStream = partialStreamChannel.getSerializedStream();
-
             partialStreamReader = new CassandraStreamReader(new StreamMessageHeader(sstable.metadata().id,
                                                                                     peer, session.planId(), false,
                                                                                     0, 0, 0,
                                                                                     null),
-                                                            partialSSTableStreamHeader, session);
+                                                            partialSSTableStreamHeader, session, FileStreamMetricsListener.NO_OP);
         }
 
         private Keyspace setupSchemaAndKeySpace()

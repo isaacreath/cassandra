@@ -48,9 +48,9 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
     private final CompressionInfo compressionInfo;
     private final long totalSize;
 
-    public CassandraCompressedStreamWriter(SSTableReader sstable, CassandraStreamHeader header, StreamSession session)
+    public CassandraCompressedStreamWriter(SSTableReader sstable, CassandraStreamHeader header, StreamSession session, FileStreamMetricsListener fileStreamMetricsListener)
     {
-        super(sstable, header, session);
+        super(sstable, header, session, fileStreamMetricsListener);
         this.compressionInfo = header.compressionInfo;
         this.totalSize = header.size();
     }
@@ -95,6 +95,7 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
                     bytesTransferred += toTransfer;
                     progress += toTransfer;
                     session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, totalSize);
+                    fileStreamMetricsListener.onStreamingBytesTransferred(progress);
                 }
             }
             logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",

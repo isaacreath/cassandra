@@ -31,6 +31,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.OutgoingStream;
+import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamingDataOutputPlus;
 import org.apache.cassandra.streaming.StreamOperation;
 import org.apache.cassandra.streaming.StreamSession;
@@ -148,6 +149,7 @@ public class CassandraOutgoingFile implements OutgoingStream
     public void write(StreamSession session, StreamingDataOutputPlus out, int version) throws IOException
     {
         SSTableReader sstable = ref.get();
+        FileStreamMetricsListener fileStreamMetricsListener = new FileStreamMetricsListener(this.getEstimatedSize(), session.peer, ProgressInfo.Direction.OUT);
 
         if (shouldStreamEntireSSTable)
         {
@@ -161,7 +163,7 @@ public class CassandraOutgoingFile implements OutgoingStream
                 CassandraStreamHeader.serializer.serialize(current, out, version);
                 out.flush();
 
-                CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context);
+                CassandraEntireSSTableStreamWriter writer = new CassandraEntireSSTableStreamWriter(sstable, session, context, fileStreamMetricsListener);
                 writer.write(out);
             }
         }
@@ -172,10 +174,11 @@ public class CassandraOutgoingFile implements OutgoingStream
             out.flush();
 
             CassandraStreamWriter writer = header.isCompressed() ?
-                                           new CassandraCompressedStreamWriter(sstable, header, session) :
-                                           new CassandraStreamWriter(sstable, header, session);
+                                           new CassandraCompressedStreamWriter(sstable, header, session, fileStreamMetricsListener) :
+                                           new CassandraStreamWriter(sstable, header, session, fileStreamMetricsListener);
             writer.write(out);
         }
+        fileStreamMetricsListener.onStreamSuccessful();
     }
 
     @VisibleForTesting

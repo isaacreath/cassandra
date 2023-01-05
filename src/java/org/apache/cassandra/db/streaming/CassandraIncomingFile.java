@@ -29,6 +29,7 @@ import org.apache.cassandra.io.sstable.SSTableMultiWriter;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.IncomingStream;
+import org.apache.cassandra.streaming.ProgressInfo;
 import org.apache.cassandra.streaming.StreamSession;
 import org.apache.cassandra.streaming.messages.StreamMessageHeader;
 
@@ -68,20 +69,21 @@ public class CassandraIncomingFile implements IncomingStream
         CassandraStreamHeader streamHeader = CassandraStreamHeader.serializer.deserialize(in, version);
         logger.debug("Incoming stream entireSSTable={} components={}", streamHeader.isEntireSSTable, streamHeader.componentManifest);
         session.countStreamedIn(streamHeader.isEntireSSTable);
-
+        FileStreamMetricsListener fileStreamMetricsListener = new FileStreamMetricsListener(streamHeader.size(), session.peer, ProgressInfo.Direction.IN);
         IStreamReader reader;
         if (streamHeader.isEntireSSTable)
         {
-            reader = new CassandraEntireSSTableStreamReader(header, streamHeader, session);
+            reader = new CassandraEntireSSTableStreamReader(header, streamHeader, session, fileStreamMetricsListener);
             numFiles = streamHeader.componentManifest.components().size();
         }
         else if (streamHeader.isCompressed())
-            reader = new CassandraCompressedStreamReader(header, streamHeader, session);
+            reader = new CassandraCompressedStreamReader(header, streamHeader, session, fileStreamMetricsListener);
         else
-            reader = new CassandraStreamReader(header, streamHeader, session);
+            reader = new CassandraStreamReader(header, streamHeader, session, fileStreamMetricsListener);
 
         size = streamHeader.size();
         sstable = reader.read(in);
+        fileStreamMetricsListener.onStreamSuccessful();
     }
 
     @Override
